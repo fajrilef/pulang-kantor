@@ -4,10 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pulang Kantor — Pilih Rute Tercepat</title>
-<meta name="description" content="Decision maker rute pulang-pergi Jakarta: cek kemacetan real-time (Google Maps) & rekomendasi transport umum tercepat.">
+<meta name="description" content="Decision maker rute pulang-pergi Jakarta: pilih lokasi di peta, cek kemacetan real-time (TomTom/Google) & rekomendasi transport umum.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root{--bg:#f4f2ee;--card:#fff;--ink:#1b1917;--muted:#7c746a;--line:#e4ded4;--green:#1a7f4b;--green-bg:#e2f2e8;--amber:#b26a00;--amber-bg:#faeed8;--red:#b3261e;--red-bg:#fbe4e2;--blue:#1f5fbf;--blue-bg:#e3ecfa;--sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;--serif:'Fraunces',Georgia,serif}
   *{margin:0;padding:0;box-sizing:border-box}
@@ -18,10 +19,9 @@
   h1{font-family:var(--serif);font-weight:600;font-size:clamp(1.9rem,5vw,2.6rem);letter-spacing:-.01em;margin-top:8px}
   .sub{margin-top:8px;color:var(--muted)}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-top:18px}
-  .field{margin-bottom:12px}
-  .field label,.pc label{display:block;font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
   .ploc{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
-  .pc{flex:1;min-width:190px}
+  .pc{flex:1;min-width:170px}
+  label{display:block;font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
   select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:var(--sans);font-size:.92rem;color:var(--ink)}
   .ar{color:var(--muted);font-weight:600;padding-bottom:10px}
   .dir-toggle{display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
@@ -40,7 +40,6 @@
   .banner.green{background:var(--green-bg);color:var(--green)}
   .banner.amber{background:var(--amber-bg);color:var(--amber)}
   .banner.red{background:var(--red-bg);color:var(--red)}
-  .banner.blue{background:var(--blue-bg);color:var(--blue)}
   .banner .alive{margin-left:auto;font-size:.66rem;font-family:var(--mono);opacity:.7;white-space:nowrap}
   .grid{display:grid;grid-template-columns:1fr;gap:14px;margin:20px 0}
   @media(min-width:720px){.grid{grid-template-columns:1fr 1fr 1fr}}
@@ -72,10 +71,20 @@
   .settings.collapsed{display:none}
   .settings h3{font-family:var(--serif);font-size:1.1rem;margin-bottom:10px}
   .settings p.help{font-size:.82rem;color:var(--muted);margin-bottom:12px}
-  .settings .row{display:flex;gap:8px}
-  .settings input{flex:1;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:.8rem;background:var(--bg);color:var(--ink)}
-  .settings .save{border:0;border-radius:10px;background:var(--ink);color:var(--bg);font-family:var(--mono);font-size:.78rem;padding:10px 16px;cursor:pointer}
+  .settings .row{display:flex;gap:8px;margin-bottom:10px}
+  .settings input{flex:1;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:.78rem;background:var(--bg);color:var(--ink);min-width:0}
+  .settings .save{border:0;border-radius:10px;background:var(--ink);color:var(--bg);font-family:var(--mono);font-size:.76rem;padding:10px 14px;cursor:pointer}
   a{color:var(--blue)}
+  .mapbox{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:20px 0}
+  .mapbox.collapsed{display:none}
+  .mapbox h3{font-family:var(--serif);font-size:1.1rem;margin-bottom:8px}
+  .mapbox .mrow{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .mapbox .mrow input{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:.88rem;color:var(--ink)}
+  .mapbox .mrow .btns{display:flex;gap:6px}
+  .mapbox .mrow button{border:1px solid var(--line);background:transparent;border-radius:10px;padding:9px 12px;font-family:var(--mono);font-size:.72rem;cursor:pointer;color:var(--ink)}
+  .mapbox .mrow button.active{background:var(--ink);color:var(--bg)}
+  #map{height:300px;border-radius:12px;border:1px solid var(--line)}
+  .mapbox .hint{font-size:.76rem;color:var(--muted);margin-top:8px;font-family:var(--mono)}
   footer{padding:26px 0 56px;color:var(--muted);font-size:.76rem;font-family:var(--mono)}
   footer b{color:var(--ink);font-weight:500}
   @media(max-width:560px){.ploc{flex-direction:column;align-items:stretch}.ar{display:none}.bottomrow{flex-direction:column;align-items:stretch}}
@@ -87,7 +96,7 @@
   <header>
     <div class="kicker">Decision Maker · Jakarta Commute</div>
     <h1>Pulang Kantor</h1>
-    <p class="sub">Cek kondisi lalu lintas rute kantor ↔ rumah, dapatkan rekomendasi moda tercepat — termasuk jalur transport umum.</p>
+    <p class="sub">Pilih lokasi (dari preset atau klik peta), cek kemacetan real-time, dapatkan rekomendasi moda tercepat.</p>
   </header>
 
   <div class="panel">
@@ -106,10 +115,28 @@
     <div class="bottomrow">
       <div class="src-toggle" id="srcToggle" title="Sumber data">
         <button data-src="heuristic" class="active">Perkiraan</button>
-        <button data-src="live">Live Google</button>
+        <button data-src="live">Live</button>
       </div>
-      <button class="btn" id="setBtn">⚙ Settings API</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="mapBtn">📍 Pilih di peta</button>
+        <button class="btn" id="setBtn">⚙ Settings API</button>
+      </div>
     </div>
+  </div>
+
+  <div class="mapbox collapsed" id="mapbox">
+    <h3>Pilih Lokasi di Peta</h3>
+    <div class="mrow">
+      <input id="searchInput" placeholder="Cari tempat… (mis: Blok M, Setiabudi)">
+      <div class="btns">
+        <button id="searchBtn">Cari</button>
+        <button id="useFrom" class="active">Dari</button>
+        <button id="useTo">Tujuan</button>
+        <button id="closeMap">Tutup</button>
+      </div>
+    </div>
+    <div id="map"></div>
+    <div class="hint">Klik di peta untuk menandai lokasi → tekan "Dari"/"Tujuan" untuk pakai sebagai titik.</div>
   </div>
 
   <div class="banner" id="banner"><div id="bannerIco">🟢</div><div style="flex:1"><h2 id="bannerTitle">Memeriksa…</h2><p id="bannerDesc">—</p><button class="rec" id="recalc">⟳ Periksa sekarang</button></div><span class="alive" id="alive"></span></div>
@@ -130,22 +157,28 @@
   <div class="verdict" id="verdict"><h2 id="verdictTitle">Menghitung…</h2><p id="verdictText">—</p></div>
 
   <div class="settings collapsed" id="settings">
-    <h3>Google Maps API Key</h3>
-    <p class="help">Aktifkan <b>Maps JavaScript API</b> + <b>Directions API</b> + <b>Places API</b> di Google Cloud, buat key, dan batasi ke HTTP referrer <b>fajrilef.github.io/*</b> supaya key cuma jalan di situs ini. Key disimpan lokal di perangkat kamu (localStorage), bukan di repo.</p>
+    <h3>API Key (opsional)</h3>
+    <p class="help"><b>TomTom (gratis, tanpa kartu):</b> daftar di <a href="https://developer.tomtom.com" target="_blank" rel="noopener">developer.tomtom.com</a> → My Apps → buat key. Bisa nampilin traffic real-time untuk mobil/motor.</p>
     <div class="row">
-      <input id="keyInput" placeholder="AIza... (tempel key di sini)" type="password">
-      <button class="save" id="saveKey">Simpan</button>
+      <input id="ttKey" placeholder="TomTom API key" type="password">
+      <button class="save" id="saveTT">Simpan TomTom</button>
     </div>
-    <p class="help" style="margin-top:10px">Buat key: <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">console.cloud.google.com/apis/credentials</a></p>
+    <p class="help"><b>Google (kredit gratis $200/bln, butuh CC):</b> aktifkan Maps JS + Directions + Places API, batasi referrer fajrilef.github.io/* → <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">console.cloud.google.com</a>. Juga aktifkan peta picker + transit real-time.</p>
+    <div class="row">
+      <input id="gmKey" placeholder="Google Maps API key" type="password">
+      <button class="save" id="saveGM">Simpan Google</button>
+    </div>
+    <p class="help">Key disimpan lokal di perangkat kamu (localStorage), tidak masuk repo.</p>
   </div>
 
-  <footer><b>Catatan:</b> Mode <b>Perkiraan</b> = pola kemacetan Jakarta (bukan real-time). Mode <b>Live Google</b> = data real-time Google Maps jika API key dimasukkan. © <span id="yr"></span> Fajri Adha</footer>
+  <footer><b>Catatan:</b> Perkiraan = pola jam sibuk. Live = data real-time (TomTom/Google) jika key diisi. Peta & pencarian lokasi = OpenStreetMap (gratis). © <span id="yr"></span> Fajri Adha</footer>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const yr=document.getElementById('yr');yr.textContent=new Date().getFullYear();
 
-/* ---------- preset lokasi ---------- */
+/* ---------- preset + custom lokasi ---------- */
 const PLACES={
   'FX Sudirman (Istora Senayan)':[-6.2268,106.8073],
   'Cibubur Junction (Ciracas)':[-6.3620,106.8870],
@@ -156,49 +189,110 @@ const PLACES={
   'Taman Mini (TMII)':[-6.3020,106.8950],
   'Kalibata City':[-6.2650,106.8420]
 };
-['fromSel','toSel'].forEach(id=>{
-  const s=document.getElementById(id);
-  Object.keys(PLACES).forEach(n=>s.add(new Option(n,n)));
-});
+const customs={}; // nama custom -> [lat,lng]
+function refreshSelects(){
+  const f=document.getElementById('fromSel'),t=document.getElementById('toSel');
+  const curF=f.value,curT=t.value;
+  f.innerHTML='';t.innerHTML='';
+  Object.keys(PLACES).forEach(n=>{f.add(new Option(n,n));t.add(new Option(n,n));});
+  Object.keys(customs).forEach(n=>{f.add(new Option(n,n));t.add(new Option(n,n));});
+  f.value=curF in (Object.assign({},PLACES,customs))?curF:Object.keys(PLACES)[0];
+  t.value=curT in (Object.assign({},PLACES,customs))?curT:Object.keys(PLACES)[1];
+}
 
-/* ---------- arah (pulang/pergi) ---------- */
+/* ---------- arah ---------- */
 let dir='home';
 function syncLabels(){
   const f=dir==='home'?'FX Sudirman (Istora Senayan)':'Cibubur Junction (Ciracas)';
   const t=dir==='home'?'Cibubur Junction (Ciracas)':'FX Sudirman (Istora Senayan)';
-  document.getElementById('fromSel').value=f;
-  document.getElementById('toSel').value=t;
+  document.getElementById('fromSel').value=f;document.getElementById('toSel').value=t;
   document.querySelectorAll('#dirToggle button').forEach(b=>b.classList.toggle('active',b.dataset.dir===dir));
 }
 document.getElementById('dirToggle').addEventListener('click',e=>{
   if(e.target.dataset.dir){dir=e.target.dataset.dir;syncLabels();compute();}
 });
 
-/* ---------- sumber data ---------- */
+/* ---------- sumber ---------- */
 let src=localStorage.getItem('pk_src')||'heuristic';
-function gmKey(){return localStorage.getItem('pk_key')||null;}
 function setSrc(v){
   src=v;localStorage.setItem('pk_src',v);
   document.querySelectorAll('#srcToggle button').forEach(b=>b.classList.toggle('active',b.dataset.src===src));
-  document.getElementById('alive').textContent=src==='live'?(gmKey()?'● live (Google)':'● live — key belum diisi'):'· perkiraan';
+  updateAlive();
 }
-document.getElementById('srcToggle').addEventListener('click',e=>{
-  if(e.target.dataset.src){setSrc(e.target.dataset.src);compute();}
-});
+function updateAlive(){
+  const a=document.getElementById('alive');
+  if(src==='live'){
+    if(localStorage.getItem('pk_tt'))a.textContent='● live (TomTom)';
+    else if(localStorage.getItem('pk_gm'))a.textContent='● live (Google)';
+    else a.textContent='● live — key belum diisi';
+  }else a.textContent='· perkiraan';
+}
+document.getElementById('srcToggle').addEventListener('click',e=>{if(e.target.dataset.src){setSrc(e.target.dataset.src);compute();}});
+
+/* ---------- settings ---------- */
 document.getElementById('setBtn').addEventListener('click',()=>document.getElementById('settings').classList.toggle('collapsed'));
-document.getElementById('saveKey').addEventListener('click',()=>{
-  const k=document.getElementById('keyInput').value.trim();
-  if(!k)return;
-  localStorage.setItem('pk_key',k);
-  document.getElementById('settings').classList.add('collapsed');
-  location.reload();
+document.getElementById('saveTT').addEventListener('click',()=>{
+  const k=document.getElementById('ttKey').value.trim();
+  if(!k)return;localStorage.setItem('pk_tt',k);document.getElementById('settings').classList.add('collapsed');updateAlive();alert('TomTom key tersimpan ✓');
+});
+document.getElementById('saveGM').addEventListener('click',()=>{
+  const k=document.getElementById('gmKey').value.trim();
+  if(!k)return;localStorage.setItem('pk_gm',k);document.getElementById('settings').classList.add('collapsed');updateAlive();location.reload();
 });
 
-/* ---------- heuristic (pola jakarta) ---------- */
+/* ---------- peta (Leaflet + OSM + Nominatim) ---------- */
+let map=null,marker=null,pickTarget='from';
+function initMap(){
+  if(map)return;
+  map=L.map('map').setView([-6.26,106.84],12);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  map.on('click',e=>{
+    if(marker)marker.setLatLng(e.latlng);else marker=L.marker(e.latlng).addTo(map);
+  });
+}
+document.getElementById('mapBtn').addEventListener('click',()=>{
+  const box=document.getElementById('mapbox');
+  box.classList.toggle('collapsed');
+  if(!box.classList.contains('collapsed')){initMap();setTimeout(()=>map.invalidateSize(),100);}
+});
+document.getElementById('closeMap').addEventListener('click',()=>document.getElementById('mapbox').classList.add('collapsed'));
+document.getElementById('useFrom').addEventListener('click',function(){
+  pickTarget='from';
+  this.classList.add('active');document.getElementById('useTo').classList.remove('active');
+  usePicked();
+});
+document.getElementById('useTo').addEventListener('click',function(){
+  pickTarget='to';
+  this.classList.add('active');document.getElementById('useFrom').classList.remove('active');
+  usePicked();
+});
+document.getElementById('searchBtn').addEventListener('click',async()=>{
+  const q=document.getElementById('searchInput').value.trim();
+  if(!q)return;
+  const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q));
+  const res=await r.json();
+  if(res.length){
+    const p={lat:parseFloat(res[0].lat),lng:parseFloat(res[0].lon)};
+    initMap();map.setView([p.lat,p.lng],15);
+    if(marker)marker.setLatLng(p);else marker=L.marker(p).addTo(map);
+  }else alert('Lokasi tidak ditemukan');
+});
+function usePicked(){
+  if(!marker){alert('Klik dulu di peta untuk menandai lokasi');return;}
+  const p=marker.getLatLng();
+  const name=Math.round(p.lat*10000)/10000+', '+Math.round(p.lng*10000)/10000;
+  if(!customs[name])customs[name]=[p.lat,p.lng];
+  refreshSelects();
+  document.getElementById((pickTarget==='from'?'from':'to')+'Sel').value=name;
+  document.getElementById('mapbox').classList.add('collapsed');
+  compute();
+}
+
+/* ---------- heuristic ---------- */
 function congestion(){
   const n=new Date(),h=n.getHours(),m=n.getMinutes(),t=h*60+m,wk=n.getDay()>=1&&n.getDay()<=5;
-  if(!wk)return{l:'lancar',t:'Lancar',d:'Akhir pekan — arus cenderung lancar di luar jam sibuk.',c:1};
-  if((t>=390&&t<=570)||(t>=990&&t<=1200))return{l:'macet',t:'Macet berat',d:'Jam sibuk — arus padat dari SCBD/Sudirman menuju Jakarta Timur.',c:2.6};
+  if(!wk)return{l:'lancar',t:'Lancar',d:'Akhir pekan — arus cenderung lancar.',c:1};
+  if((t>=390&&t<=570)||(t>=990&&t<=1200))return{l:'macet',t:'Macet berat',d:'Jam sibuk — arus padat menuju Jakarta Timur.',c:2.6};
   if((t>=330&&t<390)||(t>570&&t<=660)||(t>1200&&t<=1290))return{l:'padat',t:'Padat',d:'Beberapa titik macet mulai muncul.',c:1.8};
   return{l:'lancar',t:'Lancar',d:'Lalu lintas relatif lancar.',c:1};
 }
@@ -207,51 +301,78 @@ const ICONS={
   train:'<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="14" rx="3"/><path d="M8 21l2-3M16 21l-2-3M8 10h8M8 14h8"/></svg>',
   bus:'<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="15" rx="3"/><path d="M8 21h.01M16 21h.01M4 10h16"/></svg>'
 };
-
-/* ---------- render ---------- */
 function render(modes,bestKey,cong){
-  const g=document.getElementById('modes');
-  g.innerHTML=Object.entries(modes).map(([k,v])=>{
+  document.getElementById('modes').innerHTML=Object.entries(modes).map(([k,v])=>{
     const win=k===bestKey;
     return `<div class="card ${win?'win':''}"><div class="top"><span class="ico">${ICONS[v.ico]}</span><h3>${v.name}</h3>${win?'<span class="badge">Tercepat</span>':''}</div><div class="time">${v.time}<small> menit</small></div><div class="cost">${v.cost}</div><div class="steps">${v.steps.join(' → ')}</div></div>`;
   }).join('');
   const b=document.getElementById('banner');
   b.className='banner '+cong.l;
   document.getElementById('bannerIco').textContent=cong.l==='macet'?'🔴':cong.l==='padat'?'🟠':'🟢';
-  document.getElementById('bannerTitle').textContent=cong.t+(cong.real?' · Google live':' · pola jakarta');
+  document.getElementById('bannerTitle').textContent=cong.t+(cong.real?' · live':' · pola jakarta');
   document.getElementById('bannerDesc').textContent=cong.d;
   const v=document.getElementById('verdict');
-  if(cong.l==='macet')v.innerHTML=`<h2>🚦 Macet — naik kereta lebih cepat</h2><p>Mobil ± <b>${modes.mobil.time} menit</b> vs MRT+LRT <b>${modes.mrt.time} menit</b>. Rekomendasi: MRT Istora → Dukuh Atas, lanjut LRT → Cibubur, lalu ojol/angkot ke tujuan.</p>`;
-  else if(cong.l==='padat')v.innerHTML=`<h2>🟠 Padat — pertimbangkan kereta</h2><p>Mobil ± <b>${modes.mobil.time}</b> menit vs kereta <b>${modes.mrt.time}</b> menit. Kalau buru-buru, kereta lebih pasti.</p>`;
+  if(cong.l==='macet')v.innerHTML=`<h2>🚦 Macet — naik kereta lebih cepat</h2><p>Mobil ± <b>${modes.mobil.time} menit</b> vs MRT+LRT <b>${modes.mrt.time} menit</b>. Rekomendasi: MRT → Dukuh Atas, LRT → Cibubur, lanjut ojol ke tujuan.</p>`;
+  else if(cong.l==='padat')v.innerHTML=`<h2>🟠 Padat — pertimbangkan kereta</h2><p>Mobil ± <b>${modes.mobil.time}</b> menit vs kereta <b>${modes.mrt.time}</b> menit.</p>`;
   else v.innerHTML=`<h2>🟢 Lancar — mobil paling cepat</h2><p>Mobil ± <b>${modes.mobil.time} menit</b> (tercepat). Kereta tetap tersedia kalau mau hemat.</p>`;
 }
-
-/* ---------- heuristic compute ---------- */
 function computeHeuristic(){
   const cong=congestion();
   const car=Math.round(48*cong.c),mrt=62,bus=Math.round(85*cong.c*0.9);
   const modes={
     mobil:{name:'Mobil / Motor',time:car,cost:'Rp32k−40k',steps:['Tol JORR / Jagorawi'],ico:'car'},
-    mrt:{name:'MRT + LRT Jabodebek',time:mrt,cost:'Rp25k−30k',steps:['MRT Istora → Dukuh Atas','LRT → Cibubur','ojol → tujuan'],ico:'train'},
-    bus:{name:'Transjakarta',time:bus,cost:'Rp15k−20k',steps:['Koridor → Cibubur','lanjut angkot/ojol'],ico:'bus'}
+    mrt:{name:'MRT + LRT Jabodebek',time:mrt,cost:'Rp25k−30k',steps:['MRT → Dukuh Atas','LRT → Cibubur','ojol → tujuan'],ico:'train'},
+    bus:{name:'Transjakarta',time:bus,cost:'Rp15k−20k',steps:['Koridor → Cibubur','angkot/ojol'],ico:'bus'}
   };
   const best=Object.keys(modes).reduce((a,k)=>modes[k].time<modes[a].time?k:a,'mobil');
   render(modes,best,cong);
 }
 
-/* ---------- live google ---------- */
+/* ---------- TomTom live ---------- */
+function coordsOf(name){return (customs[name]||PLACES[name])||null;}
+async function computeTomTom(){
+  const f=document.getElementById('fromSel').value,t=document.getElementById('toSel').value;
+  const cf=coordsOf(f),ct=coordsOf(t),key=localStorage.getItem('pk_tt');
+  if(!cf||!ct||!key){computeHeuristic();return;}
+  try{
+    const url=`https://api.tomtom.com/routing/1/calculateRoute/${cf[0]},${cf[1]}:${ct[0]},${ct[1]}/json?key=${key}&traffic=true&departAt=now&routeType=fastest`;
+    const r=await fetch(url);
+    const j=await r.json();
+    if(!j.routes||!j.routes[0]){computeHeuristic();return;}
+    const s=j.routes[0].summary;
+    const car=Math.round(s.travelTimeInSeconds/60);
+    const free=Math.round((s.travelTimeInSeconds-(s.trafficDelayInSeconds||0))/60);
+    const ratio=car/Math.max(free,1);
+    const cong={l:ratio>1.6?'macet':ratio>1.25?'padat':'lancar',
+      t:ratio>1.6?'Macet berat':ratio>1.25?'Padat':'Lancar',
+      d:`TomTom live: ${car} menit sekarang vs ±${free} menit normal (delay ${(s.trafficDelayInSeconds||0)/60|0} mnt).`,c:1,real:true};
+    const mrt=62;
+    const modes={
+      mobil:{name:'Mobil / Motor',time:car,cost:'Rp30k−45k',steps:['TomTom real traffic'],ico:'car'},
+      mrt:{name:'MRT + LRT Jabodebek',time:mrt,cost:'Rp25k−30k',steps:['Estimasi (no transit live)'],ico:'train'},
+      bus:{name:'Transjakarta',time:Math.round(mrt*1.3),cost:'Rp18k',steps:['Estimasi'],ico:'bus'}
+    };
+    const best=Object.keys(modes).reduce((a,k)=>modes[k].time<modes[a].time?k:a,'mobil');
+    render(modes,best,cong);
+  }catch(e){computeHeuristic();}
+}
+
+/* ---------- Google live (jika key Google) ---------- */
 let gmapsLoaded=false,pendingCb=null;
 function loadMaps(cb){
   if(window.google&&window.google.maps&&window.google.maps.DirectionsService){cb();return;}
   pendingCb=cb;
   const s=document.createElement('script');
   window.__mapsReady=()=>{gmapsLoaded=true;if(pendingCb){const f=pendingCb;pendingCb=null;f();}};
-  s.src=`https://maps.googleapis.com/maps/api/js?key=${gmKey()}&libraries=directions,places&callback=__mapsReady`;
+  s.src=`https://maps.googleapis.com/maps/api/js?key=${localStorage.getItem('pk_gm')}&libraries=directions,places&callback=__mapsReady`;
   s.onerror=()=>computeHeuristic();
   document.head.appendChild(s);
 }
-function placeArg(name){return PLACES[name]?{location:{lat:PLACES[name][0],lng:PLACES[name][1]}}:{query:name};}
-function computeLive(){
+function placeArg(name){
+  const c=coordsOf(name);
+  return c?{location:{lat:c[0],lng:c[1]}}:{query:name};
+}
+function computeGoogle(){
   const f=document.getElementById('fromSel').value,t=document.getElementById('toSel').value;
   loadMaps(()=>{
     const svc=new google.maps.DirectionsService();
@@ -264,12 +385,12 @@ function computeLive(){
         const ratio=car/free;
         const cong={l:ratio>1.6?'macet':ratio>1.25?'padat':'lancar',
           t:ratio>1.6?'Macet berat':ratio>1.25?'Padat':'Lancar',
-          d:`Google real-time: ${car} menit sekarang vs ${free} menit normal.`,c:1,real:true};
+          d:`Google live: ${car} menit vs normal ${free} menit.`,c:1,real:true};
         svc.route({origin:o,destination:d,travelMode:'TRANSIT',departureTime:new Date()},(tr,st2)=>{
           const tt=st2==='OK'?Math.round(tr.routes[0].legs[0].duration.value/60):62;
           const modes={
             mobil:{name:'Mobil / Motor',time:car,cost:'Rp30k−45k',steps:['Google real traffic'],ico:'car'},
-            mrt:{name:'MRT + LRT (Transit)',time:tt,cost:'Rp25k−35k',steps:['Jadwal real-time Google'],ico:'train'},
+            mrt:{name:'MRT + LRT (Transit)',time:tt,cost:'Rp25k−35k',steps:['Jadwal real-time'],ico:'train'},
             bus:{name:'Transjakarta',time:Math.round(tt*1.3),cost:'Rp18k',steps:['Transjakarta'],ico:'bus'}
           };
           const best=Object.keys(modes).reduce((a,k)=>modes[k].time<modes[a].time?k:a,'mobil');
@@ -282,9 +403,14 @@ function computeLive(){
 
 /* ---------- main ---------- */
 function compute(){
-  if(src==='live'&&gmKey()){computeLive();}
-  else{computeHeuristic();if(src==='live')document.getElementById('alive').textContent='● live — key belum diisi';}
+  if(src==='live'){
+    if(localStorage.getItem('pk_tt'))computeTomTom();
+    else if(localStorage.getItem('pk_gm'))computeGoogle();
+    else{computeHeuristic();document.getElementById('alive').textContent='● live — key belum diisi';}
+  }else computeHeuristic();
 }
+document.getElementById('recalc').addEventListener('click',compute);
+refreshSelects();
 syncLabels();
 setSrc(src);
 compute();
