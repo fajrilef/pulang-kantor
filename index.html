@@ -143,6 +143,16 @@
 
   <div class="grid" id="modes"></div>
 
+  <div class="rail" id="altsBox" style="display:none">
+    <h3>🚗 Rute mobil alternatif</h3>
+    <div id="alts"></div>
+  </div>
+
+  <div class="rail" id="jamBox" style="display:none">
+    <h3>📍 Deteksi titik macet di rute tercepat</h3>
+    <div id="jam"></div>
+  </div>
+
   <div class="rail">
     <h3>Jalur rekomendasi: MRT + LRT Jabodebek</h3>
     <ul class="tl">
@@ -353,30 +363,89 @@ function computeHeuristic(){
 
 /* ---------- TomTom live ---------- */
 function coordsOf(name){return (customs[name]||PLACES[name])||null;}
+function sampleCoords(coords,stepKm){
+  const out=[];let acc=0;
+  for(let i=1;i<coords.length;i++){
+    const a=[coords[i-1][1],coords[i-1][0]],b=[coords[i][1],coords[i][0]];
+    acc+=hav(a,b);
+    if(acc>=stepKm){out.push([b[0],b[1]]);acc=0;}
+  }
+  return out;
+}
+async function flowAt(lat,lon,key){
+  const u=`https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json?point=${lat},${lon}&key=${key}&unit=kmph`;
+  const r=await fetch(u);
+  if(!r.ok)return null;
+  const j=await r.json();
+  const fs=j.flowSegmentData;
+  return fs?{spd:fs.currentSpeed||0,free:fs.freeFlowSpeed||0,closed:fs.roadClosure||false}:null;
+}
 async function computeTomTom(){
   const f=document.getElementById('fromSel').value,t=document.getElementById('toSel').value;
   const cf=coordsOf(f),ct=coordsOf(t),key=localStorage.getItem('pk_tt');
+  document.getElementById('altsBox').style.display='none';
+  document.getElementById('jamBox').style.display='none';
   if(!cf||!ct||!key){computeHeuristic();return;}
   try{
-    const url=`https://api.tomtom.com/routing/1/calculateRoute/${cf[0]},${cf[1]}:${ct[0]},${ct[1]}/json?key=${key}&traffic=true&departAt=now&routeType=fastest`;
-    const r=await fetch(url);
-    const j=await r.json();
+    const url=`https://api.tomtom.com/routing/1/calculateRoute/${cf[0]},${cf[1]}:${ct[0]},${ct[1]}/json?key=${key}&traffic=true&departAt=now&routeType=fastest&maxAlternatives=2&routeRepresentation=geojson`;
+    const j=await (await fetch(url)).json();
     if(!j.routes||!j.routes[0]){computeHeuristic();return;}
-    const s=j.routes[0].summary;
-    const car=Math.round(s.travelTimeInSeconds/60);
-    const free=Math.round((s.travelTimeInSeconds-(s.trafficDelayInSeconds||0))/60);
-    const ratio=car/Math.max(free,1);
+    const parsed=j.routes.map(r=>{
+      const s=r.summary,coords=(r.geometry&&r.geometry.coordinates)||[];
+      const roads=[];
+      ((r.guidance&&r.guidance.instructions)||[]).forEach(ins=>{
+        const nm=(ins.road||'').trim();
+        if(nm&&nm.length>2&&!roads.includes(nm))roads.push(nm);
+      });
+      return {time:Math.round(s.travelTimeInSeconds/60),delay:Math.round((s.trafficDelayInSeconds||0)/60),
+              dist:Math.round(s.lengthInMeters/1000),roads:roads.slice(0,4),coords};
+    });
+    const best=parsed.reduce((a,x)=>x.time<a.time?x:a);
+    const ratio=best.time/Math.max(best.time-best.delay,1);
     const cong={l:ratio>1.6?'macet':ratio>1.25?'padat':'lancar',
       t:ratio>1.6?'Macet berat':ratio>1.25?'Padat':'Lancar',
-      d:`TomTom live: ${car} menit sekarang vs ±${free} menit normal (delay ${(s.trafficDelayInSeconds||0)/60|0} mnt).`,c:1,real:true};
+      d:`TomTom live: tercepat ${best.time} menit (delay ${best.delay} mnt) — ${best.roads[0]||'rute tercepat'}.`,c:1,real:true};
     const mrt=62;
     const modes={
-      mobil:{name:'Mobil / Motor',time:car,cost:'Rp30k−45k',steps:['TomTom real traffic'],ico:'car'},
-      mrt:{name:'MRT + LRT Jabodebek',time:mrt,cost:'Rp25k−30k',steps:['Estimasi (no transit live)'],ico:'train'},
+      mobil:{name:'Mobil / Motor',time:best.time,cost:'Rp30k−45k',steps:[`Via ${best.roads.join(' → ')||'rute tercepat'}`],ico:'car'},
+      mrt:{name:'MRT + LRT Jabodebek',time:mrt,cost:'Rp25k−30k',steps:['Estimasi (transit belum live)'],ico:'train'},
       bus:{name:'Transjakarta',time:Math.round(mrt*1.3),cost:'Rp18k',steps:['Estimasi'],ico:'bus'}
     };
-    const best=Object.keys(modes).reduce((a,k)=>modes[k].time<modes[a].time?k:a,'mobil');
-    render(modes,best,cong);
+    const bkey=['mobil','mrt','bus'].reduce((a,k)=>modes[k].time<modes[a].time?k:a,'mobil');
+    render(modes,bkey,cong);
+    // alternatif rute mobil
+    if(parsed.length>1){
+      document.getElementById('altsBox').style.display='';
+      document.getElementById('alts').innerHTML=parsed.map((p,i)=>{
+        const fastest=p===best;
+        return `<div class="card ${fastest?'win':''}" style="margin-bottom:10px"><div class="top"><h3>Rute ${i+1}</h3>${fastest?'<span class="badge">Tercepat</span>':''}</div>
+        <div class="time">${p.time}<small> menit</small><span class="cost" style="margin-left:10px">delay ${p.delay} mnt · ${p.dist} km</span></div>
+        <div class="steps">${p.roads.join(' → ')||'Jalan umum'}</div></div>`;
+      }).join('');
+    }
+    // deteksi titik macet di rute tercepat
+    document.getElementById('jamBox').style.display='';
+    const jamEl=document.getElementById('jam');
+    jamEl.innerHTML='<div class="steps">Memindai kemacetan di rute…</div>';
+    const pts=sampleCoords(best.coords,1.5).slice(0,12);
+    const jamPts=[];
+    for(const p of pts){
+      try{
+        const fs=await flowAt(p[0],p[1],key);
+        if(fs&&!fs.closed&&fs.free>0&&fs.spd/fs.free<0.7)jamPts.push({lat:p[0],lon:p[1],spd:Math.round(fs.spd)});
+      }catch(e){}
+    }
+    if(jamPts.length===0){jamEl.innerHTML='<div class="steps">✅ Tidak ada titik macet berarti di rute tercepat.</div>';}
+    else{
+      const names=await Promise.all(jamPts.slice(0,3).map(async p=>{
+        try{
+          const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${p.lat}&lon=${p.lon}&zoom=16`);
+          const jj=await r.json();
+          return jj.display_name?jj.display_name.split(',').slice(0,2).join(','):(p.lat.toFixed(3)+','+p.lon.toFixed(3));
+        }catch(e){return p.lat.toFixed(3)+','+p.lon.toFixed(3);}
+      }));
+      jamEl.innerHTML=names.map((n,i)=>`<div class="steps" style="margin-bottom:6px">🔴 <b>Macet:</b> ${n} — kecepatan ±${jamPts[i].spd} km/jam</div>`).join('');
+    }
   }catch(e){computeHeuristic();}
 }
 
