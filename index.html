@@ -211,6 +211,8 @@ function syncLabels(){
 document.getElementById('dirToggle').addEventListener('click',e=>{
   if(e.target.dataset.dir){dir=e.target.dataset.dir;syncLabels();compute();}
 });
+/* ubah From/To langsung hitung ulang */
+['fromSel','toSel'].forEach(id=>document.getElementById(id).addEventListener('change',compute));
 
 /* ---------- sumber ---------- */
 let src=localStorage.getItem('pk_src')||'heuristic';
@@ -311,21 +313,42 @@ function render(modes,bestKey,cong){
   document.getElementById('bannerIco').textContent=cong.l==='macet'?'🔴':cong.l==='padat'?'🟠':'🟢';
   document.getElementById('bannerTitle').textContent=cong.t+(cong.real?' · live':' · pola jakarta');
   document.getElementById('bannerDesc').textContent=cong.d;
+  const f=document.getElementById('fromSel').value,t=document.getElementById('toSel').value;
+  renderRail(f,t);
   const v=document.getElementById('verdict');
-  if(cong.l==='macet')v.innerHTML=`<h2>🚦 Macet — naik kereta lebih cepat</h2><p>Mobil ± <b>${modes.mobil.time} menit</b> vs MRT+LRT <b>${modes.mrt.time} menit</b>. Rekomendasi: MRT → Dukuh Atas, LRT → Cibubur, lanjut ojol ke tujuan.</p>`;
+  if(cong.l==='macet')v.innerHTML=`<h2>🚦 Macet — naik kereta lebih cepat</h2><p>Mobil ± <b>${modes.mobil.time} menit</b> vs MRT+LRT <b>${modes.mrt.time} menit</b>. Rekomendasi: kereta dari stasiun terdekat → transit → lanjut ojol/angkot ke tujuan.</p>`;
   else if(cong.l==='padat')v.innerHTML=`<h2>🟠 Padat — pertimbangkan kereta</h2><p>Mobil ± <b>${modes.mobil.time}</b> menit vs kereta <b>${modes.mrt.time}</b> menit.</p>`;
   else v.innerHTML=`<h2>🟢 Lancar — mobil paling cepat</h2><p>Mobil ± <b>${modes.mobil.time} menit</b> (tercepat). Kereta tetap tersedia kalau mau hemat.</p>`;
 }
+function renderRail(f,t){
+  const ul=document.querySelector('.rail .tl');
+  if(!ul)return;
+  ul.innerHTML=`
+    <li><div class="st">${f}</div><div class="md">Naik MRT/kereta dari stasiun terdekat</div></li>
+    <li><div class="st">Transit</div><div class="md">Pindah ke LRT / jalur lanjutan</div></li>
+    <li><div class="st">Stasiun dekat ${t}</div><div class="md">Keluar stasiun</div></li>
+    <li><div class="st">🏁 ${t}</div><div class="md">Lanjut ojol/angkot ± 10 menit</div></li>`;
+}
+function hav(a,b){
+  const R=6371,dLa=(b[0]-a[0])*Math.PI/180,dLo=(b[1]-a[1])*Math.PI/180;
+  const s=Math.sin(dLa/2)**2+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
 function computeHeuristic(){
   const cong=congestion();
-  const car=Math.round(48*cong.c),mrt=62,bus=Math.round(85*cong.c*0.9);
+  const f=document.getElementById('fromSel').value,t=document.getElementById('toSel').value;
+  const cf=coordsOf(f),ct=coordsOf(t);
+  const road=(cf&&ct)?hav(cf,ct)*1.35:22; // perkiraan jarak jalan (km)
+  const car=Math.round(Math.max(15,road/28*60)*cong.c);
+  const mrt=Math.round(Math.max(25,road/38*60+15));
+  const bus=Math.round(Math.max(30,road/24*60));
   const modes={
-    mobil:{name:'Mobil / Motor',time:car,cost:'Rp32k−40k',steps:['Tol JORR / Jagorawi'],ico:'car'},
-    mrt:{name:'MRT + LRT Jabodebek',time:mrt,cost:'Rp25k−30k',steps:['MRT → Dukuh Atas','LRT → Cibubur','ojol → tujuan'],ico:'train'},
-    bus:{name:'Transjakarta',time:bus,cost:'Rp15k−20k',steps:['Koridor → Cibubur','angkot/ojol'],ico:'bus'}
+    mobil:{name:'Mobil / Motor',time:car,cost:'Rp32k−40k',steps:['Jalan raya / tol'],ico:'car'},
+    mrt:{name:'MRT + LRT Jabodebek',time:mrt,cost:'Rp25k−30k',steps:['Kereta dari stasiun terdekat','transit','lanjut ke tujuan'],ico:'train'},
+    bus:{name:'Transjakarta',time:bus,cost:'Rp15k−20k',steps:['Koridor busway','lanjut angkot/ojol'],ico:'bus'}
   };
   const best=Object.keys(modes).reduce((a,k)=>modes[k].time<modes[a].time?k:a,'mobil');
-  render(modes,best,cong);
+  render(modes,best,cong,f,t);
 }
 
 /* ---------- TomTom live ---------- */
