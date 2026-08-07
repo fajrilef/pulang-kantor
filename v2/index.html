@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>Pulang Kantor — Penasihat Perjalanan</title>
+<meta name="description" content="Pilih moda paling cepat pulang-pergi kerja: mobil, motor, MRT+LRT, Transjakarta.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{
+    --bg:#f4f3ef;--card:#ffffff;--ink:#1a1917;--muted:#6d675e;--line:#e3ded5;
+    --acc:#b25e33;--acc-ink:#8a451f;--soft:#f2e7dd;--ok:#2e7d4f;--warn:#b8860b;--bad:#b02a2a;
+    --focus:rgba(178,94,51,.45);
+  }
+  html[data-theme="dark"]{
+    --bg:#131110;--card:#1d1a17;--ink:#ece7e0;--muted:#a39a8e;--line:#322d27;
+    --acc:#d98a55;--acc-ink:#e8a06e;--soft:#2b231c;--ok:#57b37e;--warn:#d9a636;--bad:#e06a6a;
+    --focus:rgba(217,138,85,.45);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;
+    line-height:1.55;-webkit-font-smoothing:antialiased;
+    transition:background-color .3s ease,color .3s ease;
+  }
+  .wrap{max-width:640px;margin:0 auto;padding:0 16px 96px}
+
+  /* header */
+  header{padding:20px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+  h1{font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
+  h1 small{display:block;font-size:.68rem;font-weight:500;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  .tools{display:flex;gap:8px}
+  .tool{
+    min-height:40px;padding:0 13px;border:1px solid var(--line);border-radius:999px;
+    background:var(--card);color:var(--ink);font-size:.74rem;font-family:'JetBrains Mono',monospace;
+    cursor:pointer;transition-property:border-color,color,transform;transition-duration:.16s;transition-timing-function:ease-out;
+  }
+  .tool:hover{border-color:var(--acc);color:var(--acc-ink)}
+  .tool:active{transform:scale(.96)}
+  .tool:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+  /* direction toggle */
+  .dir{display:grid;grid-template-columns:1fr 1fr;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;margin:14px 0 10px}
+  .dir button{
+    border:0;background:transparent;padding:10px;border-radius:9px;font-weight:600;font-size:.85rem;
+    color:var(--muted);cursor:pointer;transition-property:background,color,transform;transition-duration:.16s;
+  }
+  .dir button.on{background:var(--soft);color:var(--acc-ink)}
+  .dir button:active{transform:scale(.98)}
+  .dir button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+
+  /* route card */
+  .route{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;position:relative}
+  .field{position:relative;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;transition:background .15s}
+  .field:focus-within{background:var(--soft)}
+  .field .ico{width:20px;height:20px;flex:none;display:grid;place-items:center;border-radius:50%;font-size:.62rem;font-weight:700;color:#fff}
+  .ico.from{background:var(--ok)} .ico.to{background:var(--bad)}
+  .field input{
+    flex:1;border:0;background:transparent;outline:0;font-size:1rem;color:var(--ink);min-height:28px;width:100%;
+  }
+  .field input::placeholder{color:var(--muted)}
+  .suggest{
+    position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--card);border:1px solid var(--line);
+    border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.10);z-index:40;max-height:240px;overflow:auto;display:none;
+  }
+  .suggest.show{display:block}
+  .suggest button{
+    display:block;width:100%;text-align:left;border:0;background:none;padding:10px 14px;cursor:pointer;
+    font-size:.85rem;color:var(--ink);
+  }
+  .suggest button:hover,.suggest button:focus-visible{background:var(--soft);outline:none}
+  .suggest button small{display:block;color:var(--muted);font-size:.72rem}
+  .swap{
+    position:absolute;right:14px;top:50%;transform:translateY(-50%);z-index:5;
+    width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--card);
+    cursor:pointer;font-size:1rem;transition-property:transform,border-color;transition-duration:.16s;
+  }
+  .swap:hover{border-color:var(--acc)}
+  .swap:active{transform:translateY(-50%) scale(.92)}
+  .swap:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+  .sep{height:1px;background:var(--line);margin:2px 12px}
+
+  .cta{
+    width:100%;margin-top:12px;min-height:48px;border:0;border-radius:12px;cursor:pointer;
+    background:var(--acc);color:#fff;font-size:1rem;font-weight:700;letter-spacing:.02em;
+    transition-property:background,transform;transition-duration:.16s;transition-timing-function:ease-out;
+  }
+  .cta:hover{background:var(--acc-ink)}
+  .cta:active{transform:scale(.98)}
+  .cta:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+  .cta:disabled{opacity:.55;cursor:wait}
+
+  /* verdict */
+  .verdict{display:none;margin-top:16px;border-radius:16px;padding:18px;border:1px solid var(--line)}
+  .verdict.show{display:block;animation:rise .4s ease-out}
+  .verdict .big{font-size:1.35rem;font-weight:800;letter-spacing:-.02em}
+  .verdict .why{margin-top:6px;font-size:.9rem;color:var(--muted)}
+  .verdict .time{font-family:'JetBrains Mono',monospace;font-weight:500;font-size:1.05rem;margin-top:10px}
+  .verdict .time b{font-size:1.7rem}
+  .v-ok{background:var(--soft);border-color:transparent}
+  .v-ok .big{color:var(--acc-ink)}
+  .v-warn{background:rgba(184,134,11,.10)}
+  .v-warn .big{color:var(--warn)}
+
+  /* mode cards */
+  .modes{display:grid;gap:10px;margin-top:14px}
+  .mode{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 14px}
+  .mode.win{border-color:var(--acc);background:var(--soft)}
+  .mode .em{font-size:1.3rem;width:34px;text-align:center;flex:none}
+  .mode .nm{flex:1}
+  .mode .nm b{font-size:.92rem;display:block}
+  .mode .nm small{color:var(--muted);font-size:.76rem}
+  .mode .tm{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:.95rem;font-variant-numeric:tabular-nums}
+  .mode .tm small{display:block;color:var(--muted);font-weight:400;font-size:.68rem;text-align:right}
+
+  /* map */
+  #map{height:220px;border-radius:14px;margin-top:14px;border:1px solid var(--line);z-index:1}
+  .mapbar{display:flex;gap:6px;margin-top:8px}
+  .mapbar button{
+    flex:1;min-height:38px;border:1px solid var(--line);background:var(--card);border-radius:9px;
+    font-size:.74rem;cursor:pointer;color:var(--ink);
+  }
+  .mapbar button:hover{border-color:var(--acc);color:var(--acc-ink)}
+  .mapbar button:active{transform:scale(.98)}
+
+  /* log trip */
+  .log{margin-top:16px}
+  .log h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
+  .trip{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:8px;font-size:.82rem;display:flex;gap:10px;align-items:center}
+  .trip .e{flex:1}
+  .trip .e b{display:block;font-size:.85rem}
+  .trip .a{font-family:'JetBrains Mono',monospace;font-size:.78rem;color:var(--muted);text-align:right}
+  .trip .est{color:var(--muted)}
+  .trip .act{font-weight:600}
+  .trip .act.good{color:var(--ok)} .trip .act.bad{color:var(--bad)}
+
+  .note{font-size:.74rem;color:var(--muted);margin-top:12px;line-height:1.6}
+  .rec{border:0;border-bottom:1px dashed var(--line);background:none;color:var(--acc-ink);cursor:pointer;font-size:inherit;padding:0}
+  .rec:hover{border-color:var(--acc)}
+
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pulang Kantor<small>penasihat perjalanan</small></h1>
+    <div class="tools">
+      <button class="tool" id="themeBtn" title="Mode gelap">🌙</button>
+    </div>
+  </header>
+
+  <div class="dir" role="tablist" aria-label="Arah perjalanan">
+    <button id="dirPulang" class="on" role="tab" aria-selected="true">🏠 Pulang</button>
+    <button id="dirPergi" role="tab" aria-selected="false">💼 Pergi</button>
+  </div>
+
+  <div class="route">
+    <div class="field">
+      <span class="ico from" aria-hidden="true">A</span>
+      <input id="fromInput" placeholder="Dari mana?" autocomplete="off" aria-label="Lokasi awal">
+      <div class="suggest" id="fromSuggest"></div>
+    </div>
+    <div class="sep"></div>
+    <div class="field">
+      <span class="ico to" aria-hidden="true">B</span>
+      <input id="toInput" placeholder="Ke mana?" autocomplete="off" aria-label="Lokasi tujuan">
+      <div class="suggest" id="toSuggest"></div>
+    </div>
+    <button class="swap" id="swapBtn" title="Tukar dari/tujuan" aria-label="Tukar dari dan tujuan">⇅</button>
+  </div>
+
+  <button class="cta" id="cekBtn">⚡ CEK SEKARANG</button>
+
+  <div class="verdict" id="verdict"></div>
+  <div class="modes" id="modes"></div>
+
+  <div id="map"></div>
+  <div class="mapbar">
+    <button id="mapPickFrom">📍 Tandai lokasi awal di peta</button>
+    <button id="mapPickTo">📍 Tandai tujuan di peta</button>
+  </div>
+
+  <div class="log" id="logBox" style="display:none">
+    <h3>Riwayat terakhir</h3>
+    <div id="logList"></div>
+  </div>
+
+  <p class="note" id="note">
+    Sumber: estimasi perkiraan berbasis jam (default) — tambahkan <button class="rec" id="ttLink">TomTom API key</button> di pengaturan untuk data macet real-time.
+  </p>
+</div>
+
+<script>
+/* ================= Konstanta & state ================= */
+const PLACES = {
+  "FX Sudirman (Istora)":[-6.2234,106.8027],
+  "Cibubur Junction":[-6.3668,106.8907],
+  "SCBD":[-6.2246,106.8099],
+  "Monas":[-6.1754,106.8272],
+  "Kemang":[-6.2608,106.8078],
+  "UI Depok":[-6.3608,106.8268],
+  "TMII":[-6.3020,106.8950],
+  "Kalibata City":[-6.2607,106.8315],
+};
+const FX = PLACES["FX Sudirman (Istora)"];
+const CIB = PLACES["Cibubur Junction"];
+const state = {
+  dir:"pulang", from:{name:"",lat:null,lng:null}, to:{name:"",lat:null,lng:null},
+  pick:"from", busy:false,
+};
+let map=null, markerFrom=null, markerTo=null;
+
+/* ================= Helper ================= */
+const $=id=>document.getElementById(id);
+const fmt=n=>n.toLocaleString("id-ID");
+function load(){ try{return JSON.parse(localStorage.getItem("pk2")||"{}")}catch(e){return{}} }
+function save(o){ localStorage.setItem("pk2",JSON.stringify(Object.assign(load(),o))) }
+const hav=(a,b)=>{const R=6371,dLat=(b[0]-a[0])*Math.PI/180,dLng=(b[1]-a[1])*Math.PI/180;
+  const s=Math.sin(dLat/2)**2+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));};
+
+/* ================= Autocomplete (Nominatim, debounce) ================= */
+let acTimer=null, acTarget=null;
+function bindAutocomplete(inputId, suggId, target){
+  const inp=$(inputId), box=$(suggId);
+  inp.addEventListener("input",()=>{
+    clearTimeout(acTimer);
+    const q=inp.value.trim();
+    if(q.length<3){box.classList.remove("show");box.innerHTML="";return}
+    acTarget=target;
+    acTimer=setTimeout(()=>searchNominatim(q,box),350);
+  });
+  inp.addEventListener("focus",()=>{ if(box.children.length) box.classList.add("show") });
+  document.addEventListener("click",e=>{
+    if(!inp.contains(e.target)&&!box.contains(e.target)) box.classList.remove("show");
+  });
+}
+async function searchNominatim(q,box){
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=id&q=${encodeURIComponent(q)}`);
+    const d=await r.json();
+    box.innerHTML="";
+    if(!d.length){box.innerHTML="<button disabled style='opacity:.5'>Tidak ditemukan</button>"}
+    d.forEach(p=>{
+      const b=document.createElement("button");
+      b.innerHTML=`${p.display_name.split(",")[0]}<small>${p.display_name.split(",").slice(1,4).join(",").trim()}</small>`;
+      b.onclick=()=>{
+        acTarget.name=p.display_name.split(",")[0].trim();
+        acTarget.lat=parseFloat(p.lat); acTarget.lng=parseFloat(p.lon);
+        $(acTarget===state.from?"fromInput":"toInput").value=acTarget.name;
+        box.classList.remove("show"); setMarker(acTarget);
+      };
+      box.appendChild(b);
+    });
+    box.classList.add("show");
+  }catch(e){ box.classList.remove("show") }
+}
+
+/* ================= Map ================= */
+function initMap(){
+  map=L.map("map").setView([-6.3,106.85],11);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap"}).addTo(map);
+  map.on("click",e=>{
+    const t=state.pick;
+    const name=`${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+    if(t==="from"){state.from={name,lat:e.latlng.lat,lng:e.latlng.lng};$("fromInput").value=name}
+    else{state.to={name,lat:e.latlng.lat,lng:e.latlng.lng};$("toInput").value=name}
+    setMarker(t==="from"?state.from:state.to);
+  });
+}
+function setMarker(place){
+  if(!map||!place.lat)return;
+  if(place===state.from){ markerFrom&&map.removeLayer(markerFrom); markerFrom=L.marker([place.lat,place.lng]).addTo(map) }
+  else{ markerTo&&map.removeLayer(markerTo); markerTo=L.marker([place.lat,place.lng]).addTo(map) }
+}
+
+/* ================= Heuristik & estimasi ================= */
+function trafficFactor(){
+  const h=new Date().getHours();
+  if(h>=7&&h<=9)return {car:1.45,motor:1.25,lrt:1.0,tj:1.15,ojol:1.2,label:"jam berangkat pagi"};
+  if(h>=16&&h<=20)return {car:1.75,motor:1.45,lrt:1.05,tj:1.2,ojol:1.4,label:"jam pulang sibuk"};
+  if(h>=21||h<=5)return {car:1.0,motor:1.0,lrt:1.0,tj:1.0,ojol:1.0,label:"lalu lintas lancar"};
+  return {car:1.2,motor:1.1,lrt:1.0,tj:1.05,ojol:1.1,label:"lalu lintas normal"};
+}
+function estimateModes(from,to){
+  const dist=hav([from.lat,from.lng],[to.lat,to.lng]);
+  const tf=trafficFactor();
+  // waktu dasar per km per moda (menit)
+  const base={car:dist*2.2,motor:dist*1.8,lrt:52,tj:68,ojol:dist*1.9};
+  const modes=[
+    {key:"car", em:"🚗", name:"Mobil", time:Math.round(base.car*tf.car), detail:`${dist.toFixed(1)} km · via tol ${tf.label}`},
+    {key:"motor",em:"🛵",name:"Motor",time:Math.round(base.motor*tf.motor),detail:`${dist.toFixed(1)} km · ${tf.label}`},
+    {key:"lrt",em:"🚆",name:"MRT + LRT + Ojol",time:Math.round(base.lrt*tf.lrt),detail:"MRT Istora→Dukuh Atas, LRT→Cibubur, ojol singkat"},
+    {key:"tj",em:"🚌",name:"Transjakarta",time:Math.round(base.tj*tf.tj),detail:"Bus TJ + lanjutan ojol"},
+    {key:"ojol",em:"🛵",name:"Ojol",time:Math.round(base.ojol*tf.ojol),detail:"Gojek/Grab langsung"},
+  ];
+  modes.sort((a,b)=>a.time-b.time);
+  return {modes,win:modes[0],tf};
+}
+
+/* ================= Verdict & render ================= */
+function render(modes,win,tf,fromName,toName){
+  const v=$("verdict");
+  const diff=Math.round((modes.find(m=>m.key==="car").time-win.time)/5)*5;
+  const saved=load();
+  let advice="";
+  if(win.key==="lrt") advice=`Kereta lebih cepat ±${diff} menit dari mobil — ${tf.label}, tol rawan macet.`;
+  else if(win.key==="car") advice=`Mobil pilihan tercepat saat ${tf.label} — tapi siap-siap biaya tol & parkir.`;
+  else if(win.key==="motor") advice=`Motor paling lincah saat ${tf.label} — hindari macet, siapkan jas hujan.`;
+  else if(win.key==="tj") advice=`Bus TJ menang — ${tf.label}, lebih murah dari ojol.`;
+  else advice=`Ojol paling cepat saat ${tf.label} — harga dinamis, siapkan budget.`;
+  v.className="verdict show v-"+(diff>=15?"ok":"warn");
+  v.innerHTML=`
+    <div class="big">${win.em} NAIK ${win.name.toUpperCase()}</div>
+    <div class="time">±<b>${win.time}</b> menit <small>(${fromName} → ${toName})</small></div>
+    <div class="why">${advice}</div>`;
+  $("modes").innerHTML=modes.map(m=>`
+    <div class="mode ${m.key===win.key?"win":""}">
+      <div class="em">${m.em}</div>
+      <div class="nm"><b>${m.name}</b><small>${m.detail}</small></div>
+      <div class="tm">${m.time} mnt<small>${m.key===win.key?"✅ tercepat":""}</small></div>
+    </div>`).join("");
+  $("logBox").style.display="block";
+  $("logList").innerHTML=tripsHTML(fromName,toName,win);
+}
+function tripsHTML(fromName,toName,win){
+  const trips=load().trips||[];
+  const rel=trips.filter(t=>t.from===fromName&&t.to===toName).slice(0,3);
+  if(!rel.length)return `<div class="trip"><div class="e">Belum ada riwayat rute ini.</div></div>`;
+  return rel.map(t=>{
+    const cls=t.aktual!=null?(t.aktual<=t.estimasi+5?"good":"bad"):"";
+    return `<div class="trip"><div class="e"><b>${t.moda}</b><span class="est">est ${t.estimasi} mnt</span></div>
+      <div class="a act ${cls}">${t.aktual!=null?t.aktual+" mnt aktual":"—"}</div></div>`;
+  }).join("");
+}
+function logTrip(fromName,toName,win){
+  const o=load();o.trips=o.trips||[];
+  const aktual=prompt(`Durasi aktual (menit) untuk ${win.name}? (kosongkan = tidak dicatat)`);
+  o.trips.unshift({from:fromName,to:toName,moda:win.name,estimasi:win.time,aktual:aktual?parseInt(aktual):null,ts:Date.now()});
+  o.trips=o.trips.slice(0,20);save(o);
+  render(estimateModes(state.from,state.to).modes,win,trafficFactor(),fromName,toName);
+}
+
+/* ================= Cek ================= */
+async function cek(){
+  if(state.busy)return;
+  const f=$("fromInput").value.trim(), t=$("toInput").value.trim();
+  if(!state.from.lat||!state.to.lat){
+    alert("Pilih dulu lokasi dari & tujuan (ketik + pilih saran, atau klik peta).");
+    return;
+  }
+  state.busy=true;$("cekBtn").disabled=true;$("cekBtn").textContent="⏳ Menghitung...";
+  setTimeout(()=>{
+    const {modes,win,tf}=estimateModes(state.from,state.to);
+    render(modes,win,tf,f,t);
+    // tombol catat aktual
+    const btn=document.createElement("button");
+    btn.className="rec";btn.textContent="Catat durasi aktual";
+    btn.onclick=()=>logTrip(f,t,win);
+    $("note").appendChild(document.createElement("br"));
+    $("note").appendChild(btn);
+    state.busy=false;$("cekBtn").disabled=false;$("cekBtn").textContent="⚡ CEK SEKARANG";
+  },50);
+}
+
+/* ================= Init ================= */
+(function init(){
+  const saved=load();
+  // preset default kantor <-> rumah sesuai arah
+  const setDir=d=>{
+    state.dir=d;
+    $("dirPulang").classList.toggle("on",d==="pulang");
+    $("dirPergi").classList.toggle("on",d==="pergi");
+    $("dirPulang").setAttribute("aria-selected",d==="pulang");
+    $("dirPergi").setAttribute("aria-selected",d==="pergi");
+    if(d==="pulang"){state.from={name:"FX Sudirman (Istora)",lat:FX[0],lng:FX[1]};state.to={name:"Cibubur Junction",lat:CIB[0],lng:CIB[1]}}
+    else{state.from={name:"Cibubur Junction",lat:CIB[0],lng:CIB[1]};state.to={name:"FX Sudirman (Istora)",lat:FX[0],lng:FX[1]}}
+    $("fromInput").value=state.from.name;$("toInput").value=state.to.name;
+    setMarker(state.from);setMarker(state.to);
+  };
+  $("dirPulang").onclick=()=>setDir("pulang");
+  $("dirPergi").onclick=()=>setDir("pergi");
+  $("swapBtn").onclick=()=>{const a=state.from;state.from=state.to;state.to=a;
+    $("fromInput").value=state.from.name;$("toInput").value=state.to.name;setMarker(state.from);setMarker(state.to);};
+  $("mapPickFrom").onclick=()=>{state.pick="from";$("mapPickFrom").textContent="Klik peta untuk lokasi awal...";setTimeout(()=>$("mapPickFrom").textContent="📍 Tandai lokasi awal di peta",3000)};
+  $("mapPickTo").onclick=()=>{state.pick="to";$("mapPickTo").textContent="Klik peta untuk tujuan...";setTimeout(()=>$("mapPickTo").textContent="📍 Tandai tujuan di peta",3000)};
+  $("cekBtn").onclick=cek;
+  $("themeBtn").onclick=()=>{
+    const d=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
+    document.documentElement.setAttribute("data-theme",d);
+    $("themeBtn").textContent=d==="dark"?"☀️":"🌙";
+    save({theme:d});
+  };
+  $("ttLink").onclick=()=>{
+    const k=prompt("Tempel TomTom API key (gratis, tanpa kartu):");
+    if(k){save({tt:k});$("note").innerHTML="✅ TomTom key tersimpan — mode live siap di M2 (backend + cache)."+"<br><small>Data real-time penuh aktif setelah backend terpasang.</small>"}
+  };
+  bindAutocomplete("fromInput","fromSuggest",state.from);
+  bindAutocomplete("toInput","toSuggest",state.to);
+  initMap();
+  if(saved.theme==="dark"){document.documentElement.setAttribute("data-theme","dark");$("themeBtn").textContent="☀️"}
+  setDir("pulang");
+})();
+</script>
+</body>
+</html>
