@@ -234,35 +234,35 @@ const hav=(a,b)=>{const R=6371,dLat=(b[0]-a[0])*Math.PI/180,dLng=(b[1]-a[1])*Mat
   return 2*R*Math.asin(Math.sqrt(s));};
 
 /* ================= Autocomplete (Nominatim, debounce) ================= */
-let acTimer=null, acTarget=null;
+let acTimer=null;
 function syncClr(){
   $("fromClr").classList.toggle("show", $("fromInput").value.length>0);
   $("toClr").classList.toggle("show", $("toInput").value.length>0);
 }
-function bindAutocomplete(inputId, suggId, target, clrId){
+function bindAutocomplete(inputId, suggId, key, clrId){
   const inp=$(inputId), box=$(suggId), clr=$(clrId);
   inp.addEventListener("input",()=>{
     syncClr();
     clearTimeout(acTimer);
     const q=inp.value.trim();
     if(q.length<3){box.classList.remove("show");box.innerHTML="";return}
-    acTarget=target;
-    acTimer=setTimeout(()=>searchNominatim(q,box),350);
+    acTimer=setTimeout(()=>searchNominatim(q,box,key),350);
   });
   inp.addEventListener("focus",()=>{ if(box.children.length) box.classList.add("show") });
   clr.addEventListener("click",()=>{
+    const t=state[key];
     inp.value="";
-    target.name="";target.lat=null;target.lng=null;
+    t.name="";t.lat=null;t.lng=null;
     box.classList.remove("show");box.innerHTML="";
     syncClr();inp.focus();
-    if(target===state.from&&markerFrom){map.removeLayer(markerFrom);markerFrom=null}
-    if(target===state.to&&markerTo){map.removeLayer(markerTo);markerTo=null}
+    if(key==="from"&&markerFrom){map.removeLayer(markerFrom);markerFrom=null}
+    if(key==="to"&&markerTo){map.removeLayer(markerTo);markerTo=null}
   });
   document.addEventListener("click",e=>{
     if(!inp.contains(e.target)&&!box.contains(e.target)&&!clr.contains(e.target)) box.classList.remove("show");
   });
 }
-async function searchNominatim(q,box){
+async function searchNominatim(q,box,key){
   try{
     const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=id&q=${encodeURIComponent(q)}`);
     const d=await r.json();
@@ -272,10 +272,11 @@ async function searchNominatim(q,box){
       const b=document.createElement("button");
       b.innerHTML=`${p.display_name.split(",")[0]}<small>${p.display_name.split(",").slice(1,4).join(",").trim()}</small>`;
       b.onclick=()=>{
-        acTarget.name=p.display_name.split(",")[0].trim();
-        acTarget.lat=parseFloat(p.lat); acTarget.lng=parseFloat(p.lon);
-        $(acTarget===state.from?"fromInput":"toInput").value=acTarget.name;
-        box.classList.remove("show"); setMarker(acTarget); syncClr();
+        const t=state[key];
+        t.name=p.display_name.split(",")[0].trim();
+        t.lat=parseFloat(p.lat); t.lng=parseFloat(p.lon);
+        $(key==="from"?"fromInput":"toInput").value=t.name;
+        box.classList.remove("show"); setMarker(t); syncClr();
       };
       box.appendChild(b);
     });
@@ -404,8 +405,6 @@ async function cek(){
   };
   $("swapBtn").onclick=()=>{
     const a=state.from;state.from=state.to;state.to=a;
-    state.dir=state.dir==="pulang"?"pergi":"pulang";
-    $("dirText").textContent=state.dir==="pulang"?"🏠 Pulang · kantor → rumah":"💼 Pergi · rumah → kantor";
     $("fromInput").value=state.from.name;$("toInput").value=state.to.name;
     setMarker(state.from);setMarker(state.to);syncClr();
   };
@@ -422,8 +421,8 @@ async function cek(){
     const k=prompt("Tempel TomTom API key (gratis, tanpa kartu):");
     if(k){save({tt:k});$("note").innerHTML="✅ TomTom key tersimpan — mode live siap di M2 (backend + cache)."+"<br><small>Data real-time penuh aktif setelah backend terpasang.</small>"}
   };
-  bindAutocomplete("fromInput","fromSuggest",state.from,"fromClr");
-  bindAutocomplete("toInput","toSuggest",state.to,"toClr");
+  bindAutocomplete("fromInput","fromSuggest","from","fromClr");
+  bindAutocomplete("toInput","toSuggest","to","toClr");
   initMap();
   if(saved.theme==="dark"){document.documentElement.setAttribute("data-theme","dark");$("themeBtn").textContent="☀️"}
   setDir("pulang");
