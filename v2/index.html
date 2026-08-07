@@ -330,6 +330,26 @@ async function osrmInfo(f,t){
   }catch(e){return{dur:null,toll:null}}
 }
 
+/* ================= API Backend (dengan fallback offline) ================= */
+const API_BASE="http://127.0.0.1:8000/api";
+let apiOk=false;
+async function apiFetch(path,opt={}){
+  try{
+    const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),6000);
+    const r=await fetch(API_BASE+path,{...opt,signal:ctl.signal});
+    clearTimeout(t);
+    if(!r.ok)return null;
+    return await r.json();
+  }catch(e){return null}
+}
+function drawGeo(coords){
+  if(!coords||!coords.length)return;
+  if(routeLayer){map.removeLayer(routeLayer);routeLayer=null}
+  const ll=coords.map(c=>[c[1],c[0]]);
+  routeLayer=L.polyline(ll,{color:"#b25e33",weight:5,opacity:.85,lineJoin:"round"}).addTo(map);
+  map.fitBounds(routeLayer.getBounds(),{padding:[40,40]});
+}
+
 /* ================= Heuristik & estimasi ================= */
 function trafficFactor(){
   const h=new Date().getHours();
@@ -392,9 +412,28 @@ function tripsHTML(fromName,toName,win){
 function logTrip(fromName,toName,win){
   const o=load();o.trips=o.trips||[];
   const aktual=prompt(`Durasi aktual (menit) untuk ${win.name}? (kosongkan = tidak dicatat)`);
-  o.trips.unshift({from:fromName,to:toName,moda:win.name,estimasi:win.time,aktual:aktual?parseInt(aktual):null,ts:Date.now()});
+  const act=aktual?parseInt(aktual):null;
+  o.trips.unshift({from:fromName,to:toName,moda:win.name,estimasi:win.time,aktual:act,ts:Date.now()});
   o.trips=o.trips.slice(0,20);save(o);
-  render(estimateModes(state.from,state.to).modes,win,trafficFactor(),fromName,toName);
+  // kirim ke backend (fire & forget — gagal tidak apa-apa, tetap tersimpan lokal)
+  apiFetch("/trips",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({dari:fromName,tujuan:toName,moda:win.name,estimasi_mnt:win.time,aktual_mnt:act,verdict:win.name})});
+  loadHistory(fromName,toName);
+}
+async function loadHistory(fromName,toName){
+  const box=$("logList");
+  if(!fromName||!toName)return;
+  const d=await apiFetch(`/trips?dari=${encodeURIComponent(fromName)}&tujuan=${encodeURIComponent(toName)}&limit=5`);
+  if(!d||!d.trips||!d.trips.length){box.innerHTML="<div class='trip'><div class='e'>Belum ada riwayat rute ini.</div></div>";return}
+  // baris learning (rerata aktual per moda)
+  const learn=(d.learning||[]).map(l=>`${l.moda} avg ${l.akt} mnt (${l.n}x)`).join(" · ");
+  const html=d.trips.map(t=>{
+    const cls=t.aktual_mnt!=null?(t.aktual_mnt<=t.estimasi_mnt+5?"good":"bad"):"";
+    const when=new Date(t.trip_at).toLocaleDateString("id-ID",{day:"2-digit",month:"short"});
+    return `<div class="trip"><div class="e"><b>${t.moda}</b><span class="est">${when} · est ${t.estimasi_mnt} mnt</span></div>
+      <div class="a act ${cls}">${t.aktual_mnt!=null?t.aktual_mnt+" mnt aktual":"—"}</div></div>`;
+  }).join("");
+  box.innerHTML=(learn?`<div class="trip" style="background:var(--soft)"><div class="e"><b>📈 Learning</b><span class="est">${learn}</span></div></div>`:"")+html;
 }
 
 /* ================= Cek ================= */
@@ -407,30 +446,46 @@ async function cek(){
   }
   state.busy=true;$("cekBtn").disabled=true;$("cekBtn").textContent="⏳ Menghitung...";
   setTimeout(async ()=>{
-    const {modes,win,tf}=estimateModes(state.from,state.to);
-    // estimasi real dari OSRM + deteksi jalur tol (motor tidak boleh tol)
-    const info=await osrmInfo(state.from,state.to);
-    if(info.dur){
-      const m=modes.find(x=>x.key==="car");
-      if(m){m.time=info.dur;m.detail=info.toll?`via ${info.toll}`:`${hav([state.from.lat,state.from.lng],[state.to.lat,state.to.lng]).toFixed(1)} km · non-tol`}
-      const mt=modes.find(x=>x.key==="motor");
-      if(mt){mt.time=Math.round(info.dur*(info.toll?1.35:1.15));mt.detail=info.toll?"jalur arteri — hindari tol (estimasi)":"bebas tol"}
-      const o=modes.find(x=>x.key==="ojol");if(o)o.time=Math.round(mt.time*1.1);
+    const q=`/route?from_lat=${state.from.lat}&from_lng=${state.from.lng}&to_lat=${state.to.lat}&to_lng=${state.to.lng}`;
+    const data=await apiFetch(q);
+    let modes,win,tf,tollNote;
+    if(data&&data.modes){
+      apiOk=true;
+      modes=data.modes;win=data.win;
+      tf={label:data.traffic.label,factor:data.traffic.factor};
+      tollNote=data.toll
+        ?`🛣️ Rute mobil lewat ${data.toll} — motor nggak bisa tol, pakai jalur arteri (lebih lama ±30%).`
+        :"🛣️ Rute ini tidak lewat jalan tol — semua moda jalan kaki oke.";
+      drawGeo(data.geometry);
+    }else{
+      apiOk=false;
+      const r=estimateModes(state.from,state.to);
+      modes=r.modes;win=r.win;tf=r.tf;
+      const info=await osrmInfo(state.from,state.to);
+      if(info.dur){
+        const m=modes.find(x=>x.key==="car");
+        if(m){m.time=info.dur;m.detail=info.toll?`via ${info.toll}`:`${hav([state.from.lat,state.from.lng],[state.to.lat,state.to.lng]).toFixed(1)} km · non-tol`}
+        const mt=modes.find(x=>x.key==="motor");
+        if(mt){mt.time=Math.round(info.dur*(info.toll?1.35:1.15));mt.detail=info.toll?"jalur arteri — hindari tol (estimasi)":"bebas tol"}
+        const o=modes.find(x=>x.key==="ojol");if(o)o.time=Math.round(mt.time*1.1);
+      }
+      modes.sort((a,b)=>a.time-b.time);
+      win=modes[0];
+      tollNote=info.toll
+        ?`🛣️ Rute mobil lewat ${info.toll} — motor nggak bisa tol, pakai jalur arteri (lebih lama ±30%).`
+        :"🛣️ Rute ini tidak lewat jalan tol — semua moda jalan kaki oke.";
+      drawRoute(state.from,state.to);
     }
-    modes.sort((a,b)=>a.time-b.time);
-    const win2=modes[0];
-    render(modes,win2,tf,f,t);
-    drawRoute(state.from,state.to);
-    const tollNote=info.toll
-      ?`🛣️ Rute mobil lewat ${info.toll} — motor nggak bisa tol, pakai jalur arteri (lebih lama ±30%).`
-      :"🛣️ Rute ini tidak lewat jalan tol — semua moda jalan kaki oke.";
+    render(modes,win,tf,f,t);
+    const apiBadge=apiOk?"🟢 live":"⚪ offline (estimasi lokal)";
     // tombol catat aktual
     const btn=document.createElement("button");
     btn.className="rec";btn.textContent="Catat durasi aktual";
-    btn.onclick=()=>logTrip(f,t,win2);
-    $("note").innerHTML=tollNote;
+    btn.onclick=()=>logTrip(f,t,win);
+    $("note").innerHTML=`${apiBadge}<br>${tollNote}`;
     $("note").appendChild(document.createElement("br"));
     $("note").appendChild(btn);
+    loadHistory(f,t);
     state.busy=false;$("cekBtn").disabled=false;$("cekBtn").textContent="⚡ CEK SEKARANG";
   },50);
 }
