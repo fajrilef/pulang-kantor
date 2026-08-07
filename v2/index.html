@@ -43,19 +43,15 @@
   .tool:active{transform:scale(.96)}
   .tool:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 
-  /* direction toggle */
-  .dir{display:grid;grid-template-columns:1fr 1fr;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;margin:14px 0 10px}
-  .dir button{
-    border:0;background:transparent;padding:10px;border-radius:9px;font-weight:600;font-size:.85rem;
-    color:var(--muted);cursor:pointer;transition-property:background,color,transform;transition-duration:.16s;
+  /* direction text */
+  .dirtext{
+    font-family:'JetBrains Mono',monospace;font-size:.78rem;color:var(--acc-ink);
+    letter-spacing:.06em;margin:14px 2px 10px;font-weight:500;
   }
-  .dir button.on{background:var(--soft);color:var(--acc-ink)}
-  .dir button:active{transform:scale(.98)}
-  .dir button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
 
   /* route card */
   .route{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;position:relative}
-  .field{position:relative;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;transition:background .15s}
+  .field{position:relative;display:flex;align-items:center;gap:10px;padding:10px 44px 10px 12px;border-radius:10px;transition:background .15s}
   .field:focus-within{background:var(--soft)}
   .field .ico{width:20px;height:20px;flex:none;display:grid;place-items:center;border-radius:50%;font-size:.62rem;font-weight:700;color:#fff}
   .ico.from{background:var(--ok)} .ico.to{background:var(--bad)}
@@ -63,6 +59,17 @@
     flex:1;border:0;background:transparent;outline:0;font-size:1rem;color:var(--ink);min-height:28px;width:100%;
   }
   .field input::placeholder{color:var(--muted)}
+  .clr{
+    position:absolute;right:10px;top:50%;transform:translateY(-50%);z-index:4;
+    width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:var(--card);
+    color:var(--muted);font-size:.72rem;cursor:pointer;line-height:1;
+    opacity:0;pointer-events:none;
+    transition-property:opacity,border-color,color,transform;transition-duration:.15s;transition-timing-function:ease-out;
+  }
+  .clr.show{opacity:1;pointer-events:auto}
+  .clr:hover{border-color:var(--acc);color:var(--acc-ink)}
+  .clr:active{transform:translateY(-50%) scale(.9)}
+  .clr:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
   .suggest{
     position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--card);border:1px solid var(--line);
     border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.10);z-index:40;max-height:240px;overflow:auto;display:none;
@@ -157,21 +164,20 @@
     </div>
   </header>
 
-  <div class="dir" role="tablist" aria-label="Arah perjalanan">
-    <button id="dirPulang" class="on" role="tab" aria-selected="true">🏠 Pulang</button>
-    <button id="dirPergi" role="tab" aria-selected="false">💼 Pergi</button>
-  </div>
+  <div class="dirtext" id="dirText">🏠 Pulang · kantor → rumah</div>
 
   <div class="route">
     <div class="field">
       <span class="ico from" aria-hidden="true">A</span>
       <input id="fromInput" placeholder="Dari mana?" autocomplete="off" aria-label="Lokasi awal">
+      <button class="clr" id="fromClr" aria-label="Hapus lokasi awal">✕</button>
       <div class="suggest" id="fromSuggest"></div>
     </div>
     <div class="sep"></div>
     <div class="field">
       <span class="ico to" aria-hidden="true">B</span>
       <input id="toInput" placeholder="Ke mana?" autocomplete="off" aria-label="Lokasi tujuan">
+      <button class="clr" id="toClr" aria-label="Hapus lokasi tujuan">✕</button>
       <div class="suggest" id="toSuggest"></div>
     </div>
     <button class="swap" id="swapBtn" title="Tukar dari/tujuan" aria-label="Tukar dari dan tujuan">⇅</button>
@@ -229,9 +235,14 @@ const hav=(a,b)=>{const R=6371,dLat=(b[0]-a[0])*Math.PI/180,dLng=(b[1]-a[1])*Mat
 
 /* ================= Autocomplete (Nominatim, debounce) ================= */
 let acTimer=null, acTarget=null;
-function bindAutocomplete(inputId, suggId, target){
-  const inp=$(inputId), box=$(suggId);
+function syncClr(){
+  $("fromClr").classList.toggle("show", $("fromInput").value.length>0);
+  $("toClr").classList.toggle("show", $("toInput").value.length>0);
+}
+function bindAutocomplete(inputId, suggId, target, clrId){
+  const inp=$(inputId), box=$(suggId), clr=$(clrId);
   inp.addEventListener("input",()=>{
+    syncClr();
     clearTimeout(acTimer);
     const q=inp.value.trim();
     if(q.length<3){box.classList.remove("show");box.innerHTML="";return}
@@ -239,8 +250,16 @@ function bindAutocomplete(inputId, suggId, target){
     acTimer=setTimeout(()=>searchNominatim(q,box),350);
   });
   inp.addEventListener("focus",()=>{ if(box.children.length) box.classList.add("show") });
+  clr.addEventListener("click",()=>{
+    inp.value="";
+    target.name="";target.lat=null;target.lng=null;
+    box.classList.remove("show");box.innerHTML="";
+    syncClr();inp.focus();
+    if(target===state.from&&markerFrom){map.removeLayer(markerFrom);markerFrom=null}
+    if(target===state.to&&markerTo){map.removeLayer(markerTo);markerTo=null}
+  });
   document.addEventListener("click",e=>{
-    if(!inp.contains(e.target)&&!box.contains(e.target)) box.classList.remove("show");
+    if(!inp.contains(e.target)&&!box.contains(e.target)&&!clr.contains(e.target)) box.classList.remove("show");
   });
 }
 async function searchNominatim(q,box){
@@ -256,7 +275,7 @@ async function searchNominatim(q,box){
         acTarget.name=p.display_name.split(",")[0].trim();
         acTarget.lat=parseFloat(p.lat); acTarget.lng=parseFloat(p.lon);
         $(acTarget===state.from?"fromInput":"toInput").value=acTarget.name;
-        box.classList.remove("show"); setMarker(acTarget);
+        box.classList.remove("show"); setMarker(acTarget); syncClr();
       };
       box.appendChild(b);
     });
@@ -377,19 +396,19 @@ async function cek(){
   // preset default kantor <-> rumah sesuai arah
   const setDir=d=>{
     state.dir=d;
-    $("dirPulang").classList.toggle("on",d==="pulang");
-    $("dirPergi").classList.toggle("on",d==="pergi");
-    $("dirPulang").setAttribute("aria-selected",d==="pulang");
-    $("dirPergi").setAttribute("aria-selected",d==="pergi");
+    $("dirText").textContent=d==="pulang"?"🏠 Pulang · kantor → rumah":"💼 Pergi · rumah → kantor";
     if(d==="pulang"){state.from={name:"FX Sudirman (Istora)",lat:FX[0],lng:FX[1]};state.to={name:"Cibubur Junction",lat:CIB[0],lng:CIB[1]}}
     else{state.from={name:"Cibubur Junction",lat:CIB[0],lng:CIB[1]};state.to={name:"FX Sudirman (Istora)",lat:FX[0],lng:FX[1]}}
     $("fromInput").value=state.from.name;$("toInput").value=state.to.name;
-    setMarker(state.from);setMarker(state.to);
+    setMarker(state.from);setMarker(state.to);syncClr();
   };
-  $("dirPulang").onclick=()=>setDir("pulang");
-  $("dirPergi").onclick=()=>setDir("pergi");
-  $("swapBtn").onclick=()=>{const a=state.from;state.from=state.to;state.to=a;
-    $("fromInput").value=state.from.name;$("toInput").value=state.to.name;setMarker(state.from);setMarker(state.to);};
+  $("swapBtn").onclick=()=>{
+    const a=state.from;state.from=state.to;state.to=a;
+    state.dir=state.dir==="pulang"?"pergi":"pulang";
+    $("dirText").textContent=state.dir==="pulang"?"🏠 Pulang · kantor → rumah":"💼 Pergi · rumah → kantor";
+    $("fromInput").value=state.from.name;$("toInput").value=state.to.name;
+    setMarker(state.from);setMarker(state.to);syncClr();
+  };
   $("mapPickFrom").onclick=()=>{state.pick="from";$("mapPickFrom").textContent="Klik peta untuk lokasi awal...";setTimeout(()=>$("mapPickFrom").textContent="📍 Tandai lokasi awal di peta",3000)};
   $("mapPickTo").onclick=()=>{state.pick="to";$("mapPickTo").textContent="Klik peta untuk tujuan...";setTimeout(()=>$("mapPickTo").textContent="📍 Tandai tujuan di peta",3000)};
   $("cekBtn").onclick=cek;
@@ -403,8 +422,8 @@ async function cek(){
     const k=prompt("Tempel TomTom API key (gratis, tanpa kartu):");
     if(k){save({tt:k});$("note").innerHTML="✅ TomTom key tersimpan — mode live siap di M2 (backend + cache)."+"<br><small>Data real-time penuh aktif setelah backend terpasang.</small>"}
   };
-  bindAutocomplete("fromInput","fromSuggest",state.from);
-  bindAutocomplete("toInput","toSuggest",state.to);
+  bindAutocomplete("fromInput","fromSuggest",state.from,"fromClr");
+  bindAutocomplete("toInput","toSuggest",state.to,"toClr");
   initMap();
   if(saved.theme==="dark"){document.documentElement.setAttribute("data-theme","dark");$("themeBtn").textContent="☀️"}
   setDir("pulang");
