@@ -82,11 +82,12 @@
   .suggest button:hover,.suggest button:focus-visible{background:var(--soft);outline:none}
   .suggest button small{display:block;color:var(--muted);font-size:.72rem}
   .swap{
-    position:absolute;right:14px;top:50%;transform:translateY(-50%);z-index:5;
+    position:absolute;left:14px;top:50%;transform:translateY(-50%);z-index:5;
     width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--card);
-    cursor:pointer;font-size:1rem;transition-property:transform,border-color;transition-duration:.16s;
+    cursor:pointer;font-size:1rem;
+    transition-property:transform,border-color,background;transition-duration:.16s;transition-timing-function:ease-out;
   }
-  .swap:hover{border-color:var(--acc)}
+  .swap:hover{border-color:var(--acc);background:var(--soft)}
   .swap:active{transform:translateY(-50%) scale(.92)}
   .swap:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
   .sep{height:1px;background:var(--line);margin:2px 12px}
