@@ -82,14 +82,15 @@
   .suggest button:hover,.suggest button:focus-visible{background:var(--soft);outline:none}
   .suggest button small{display:block;color:var(--muted);font-size:.72rem}
   .swap{
-    position:absolute;left:14px;top:50%;transform:translateY(-50%);z-index:5;
-    width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--card);
-    cursor:pointer;font-size:1rem;
-    transition-property:transform,border-color,background;transition-duration:.16s;transition-timing-function:ease-out;
+    position:absolute;left:6px;top:50%;transform:translateY(-50%);z-index:5;
+    width:34px;height:34px;border:0;background:transparent;
+    cursor:pointer;font-size:1.15rem;color:var(--muted);line-height:1;
+    display:grid;place-items:center;
+    transition-property:color,transform;transition-duration:.16s;transition-timing-function:ease-out;
   }
-  .swap:hover{border-color:var(--acc);background:var(--soft)}
-  .swap:active{transform:translateY(-50%) scale(.92)}
-  .swap:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+  .swap:hover{color:var(--acc)}
+  .swap:active{transform:translateY(-50%) scale(.9)}
+  .swap:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:8px}
   .sep{height:1px;background:var(--line);margin:2px 12px}
 
   .cta{
@@ -313,6 +314,19 @@ async function drawRoute(f,t){
     map.fitBounds(routeLayer.getBounds(),{padding:[40,40]});
   }catch(e){ /* offline/error: diam saja */ }
 }
+async function osrmInfo(f,t){
+  try{
+    const d=await (await fetch(`https://router.project-osrm.org/route/v1/driving/${f.lng},${f.lat};${t.lng},${t.lat}?overview=false&steps=true`)).json();
+    const r=d.routes&&d.routes[0];if(!r)return{dur:null,toll:null};
+    const dur=Math.round(r.duration/60);
+    let toll=null;
+    for(const leg of r.legs||[])for(const s of leg.steps||[]){
+      const n=(s.name||"")+" "+(s.ref||"");
+      if(/(^|\s)tol\s|jalan tol/i.test(n)){toll=(s.name||s.ref||"jalan tol").trim();break}
+    }
+    return {dur,toll};
+  }catch(e){return{dur:null,toll:null}}
+}
 
 /* ================= Heuristik & estimasi ================= */
 function trafficFactor(){
@@ -390,14 +404,29 @@ async function cek(){
     return;
   }
   state.busy=true;$("cekBtn").disabled=true;$("cekBtn").textContent="⏳ Menghitung...";
-  setTimeout(()=>{
+  setTimeout(async ()=>{
     const {modes,win,tf}=estimateModes(state.from,state.to);
-    render(modes,win,tf,f,t);
+    // estimasi real dari OSRM + deteksi jalur tol (motor tidak boleh tol)
+    const info=await osrmInfo(state.from,state.to);
+    if(info.dur){
+      const m=modes.find(x=>x.key==="car");
+      if(m){m.time=info.dur;m.detail=info.toll?`via ${info.toll}`:`${hav([state.from.lat,state.from.lng],[state.to.lat,state.to.lng]).toFixed(1)} km · non-tol`}
+      const mt=modes.find(x=>x.key==="motor");
+      if(mt){mt.time=Math.round(info.dur*(info.toll?1.35:1.15));mt.detail=info.toll?"jalur arteri — hindari tol (estimasi)":"bebas tol"}
+      const o=modes.find(x=>x.key==="ojol");if(o)o.time=Math.round(mt.time*1.1);
+    }
+    modes.sort((a,b)=>a.time-b.time);
+    const win2=modes[0];
+    render(modes,win2,tf,f,t);
     drawRoute(state.from,state.to);
+    const tollNote=info.toll
+      ?`🛣️ Rute mobil lewat ${info.toll} — motor nggak bisa tol, pakai jalur arteri (lebih lama ±30%).`
+      :"🛣️ Rute ini tidak lewat jalan tol — semua moda jalan kaki oke.";
     // tombol catat aktual
     const btn=document.createElement("button");
     btn.className="rec";btn.textContent="Catat durasi aktual";
-    btn.onclick=()=>logTrip(f,t,win);
+    btn.onclick=()=>logTrip(f,t,win2);
+    $("note").innerHTML=tollNote;
     $("note").appendChild(document.createElement("br"));
     $("note").appendChild(btn);
     state.busy=false;$("cekBtn").disabled=false;$("cekBtn").textContent="⚡ CEK SEKARANG";
