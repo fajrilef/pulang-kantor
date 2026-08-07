@@ -224,7 +224,7 @@ const state = {
   dir:"pulang", from:{name:"",lat:null,lng:null}, to:{name:"",lat:null,lng:null},
   pick:"from", busy:false,
 };
-let map=null, markerFrom=null, markerTo=null, routeLayer=null;
+let map=null, markerFrom=null, markerTo=null, routeLayer=null, routeReq=0;
 
 /* ================= Helper ================= */
 const $=id=>document.getElementById(id);
@@ -304,12 +304,14 @@ function setMarker(place){
   else{ markerTo&&map.removeLayer(markerTo); markerTo=L.marker([place.lat,place.lng]).addTo(map) }
 }
 async function drawRoute(f,t){
+  const my=++routeReq;
+  if(routeLayer){map.removeLayer(routeLayer);routeLayer=null}
   if(!f.lat||!t.lat)return;
   try{
     const d=await (await fetch(`https://router.project-osrm.org/route/v1/driving/${f.lng},${f.lat};${t.lng},${t.lat}?overview=full&geometries=geojson`)).json();
+    if(my!==routeReq)return; // respons basi dari pencarian lama → buang
     if(!d.routes||!d.routes.length)return;
     const coords=d.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
-    if(routeLayer)map.removeLayer(routeLayer);
     routeLayer=L.polyline(coords,{color:"#b25e33",weight:5,opacity:.85,lineJoin:"round"}).addTo(map);
     map.fitBounds(routeLayer.getBounds(),{padding:[40,40]});
   }catch(e){ /* offline/error: diam saja */ }
