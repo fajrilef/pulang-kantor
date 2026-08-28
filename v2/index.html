@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
 <style>
   :root{
     --bg:#f4f3ef;--card:#ffffff;--ink:#1a1917;--muted:#6d675e;--line:#e3ded5;
@@ -151,6 +152,29 @@
   .rec{border:0;border-bottom:1px dashed var(--line);background:none;color:var(--acc-ink);cursor:pointer;font-size:inherit;padding:0}
   .rec:hover{border-color:var(--acc)}
 
+  /* cctv publik dki */
+  .cctvsec{margin-top:16px}
+  .cctvsec h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .cctvhint{font-size:.74rem;color:var(--muted);margin:4px 0 8px;line-height:1.5}
+  .cctvrow{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+  .cam{
+    flex:none;min-height:38px;padding:0 14px;border:1px solid var(--line);border-radius:999px;
+    background:var(--card);color:var(--ink);font-size:.8rem;cursor:pointer;
+  }
+  .cam:hover{border-color:var(--acc);color:var(--acc-ink)}
+  .cam:active{transform:scale(.97)}
+  .cctvmodal{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px}
+  .cctvmodal[hidden]{display:none}
+  .cctvbox{width:100%;max-width:560px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+  .cctvhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:.9rem}
+  .cctvclose{border:1px solid var(--line);background:var(--card);color:var(--muted);width:30px;height:30px;border-radius:8px;cursor:pointer}
+  .cctvclose:hover{border-color:var(--acc);color:var(--acc-ink)}
+  .cctvtabs{display:flex;gap:6px;margin-bottom:8px}
+  .ctab{flex:1;min-height:34px;border:1px solid var(--line);background:var(--card);border-radius:8px;font-size:.76rem;cursor:pointer;color:var(--ink)}
+  .ctab.on{background:var(--soft);border-color:var(--acc);color:var(--acc-ink);font-weight:700}
+  .cctvvideo{width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;display:block}
+  .cctvsrc{font-size:.7rem;color:var(--muted);margin-top:8px;line-height:1.5}
+
   @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @media (prefers-reduced-motion:reduce){
     *{animation:none!important;transition:none!important}
@@ -194,6 +218,28 @@
   <div class="mapbar">
     <button id="mapPickFrom">📍 Tandai lokasi awal di peta</button>
     <button id="mapPickTo">📍 Tandai tujuan di peta</button>
+  </div>
+
+  <div class="cctvsec" id="cctvSec">
+    <h3>📹 CCTV Jalan Pulang (live DKI)</h3>
+    <p class="cctvhint">Sumber resmi jakcctv.jakarta.go.id — cek kondisi jalan sebelum berangkat.</p>
+    <div class="cctvrow" id="cctvRow"></div>
+  </div>
+
+  <div class="cctvmodal" id="cctvModal" hidden>
+    <div class="cctvbox">
+      <div class="cctvhead">
+        <b id="cctvTitle">CCTV</b>
+        <button class="cctvclose" id="cctvClose" aria-label="Tutup CCTV">✕</button>
+      </div>
+      <div class="cctvtabs">
+        <button class="ctab on" id="tabIframe">Embed</button>
+        <button class="ctab" id="tabHls">HLS (langsung)</button>
+      </div>
+      <iframe id="cctvIframe" class="cctvvideo" style="border:0" allowfullscreen referrerpolicy="no-referrer"></iframe>
+      <video id="cctvVideo" class="cctvvideo" muted autoplay playsinline hidden></video>
+      <div class="cctvsrc">Kalau tampilan hitam, coba tab HLS atau buka situs sumber — kadang butuh beberapa detik untuk tersambung.</div>
+    </div>
   </div>
 
   <div class="log" id="logBox" style="display:none">
@@ -350,6 +396,85 @@ function drawGeo(coords){
   const ll=coords.map(c=>[c[1],c[0]]);
   routeLayer=L.polyline(ll,{color:"#b25e33",weight:5,opacity:.85,lineJoin:"round"}).addTo(map);
   map.fitBounds(routeLayer.getBounds(),{padding:[40,40]});
+}
+
+/* ================= CCTV Publik DKI (jakcctv.jakarta.go.id) ================= */
+const CCTV_HOST="https://dki-jkt.balitower.co.id:7028";
+const CAMS=[
+  {n:"S. Parman C07",id:"502535_JKB_SATPOL-PP_SIMPANG-JL.-LETJEN.-S.-PARMAN-C07_CCTV-01"},
+  {n:"S. Parman C08",id:"502645_JKB_SATPOL-PP_SIMPANG-JL.-LETJEN.-S.-PARMAN-C08_CCTV-01"},
+  {n:"Gatot Subroto 7 (JPO)",id:"502045_JKP_POLDA_JPO-JL.-GATOT-SUBROTO-7_CCTV-01"},
+  {n:"Gatot Subroto C11",id:"502507_JKP_SATPOL-PP_JL.-JEND.-GATOT-SUBROTO-C11_CCTV-01"},
+  {n:"Gatot Subroto C13",id:"503300_JKP_POLDA_JL.-JEND.-GATOT-SUBROTO-C13_CCTV-01"},
+  {n:"Gatot Subroto C14",id:"503303_JKP_POLDA_JL.-JEND.-GATOT-SUBROTO-C14_CCTV-01"},
+  {n:"Gerbang Pemuda C02",id:"502155_JKP_POLDA_JL.-GERBANG-PEMUDA-C02_CCTV-01"},
+  {n:"Gerbang Pemuda C03",id:"502160_JKP_POLDA_JL.-GERBANG-PEMUDA-C03_CCTV-01"},
+  {n:"Gerbang Pemuda C04",id:"502506_JKP_SATPOL-PP_JL.-GERBANG-PEMUDA-C04_CCTV-01"},
+  {n:"Tentara Pelajar C04",id:"503301_JKP_POLDA_JL.-TENTARA-PELAJAR-C04_CCTV-01"},
+  {n:"Thamrin C01",id:"501844_JKP_DISHUB_JL.-MH.-THAMRIN-C01_CCTV-01"},
+  {n:"Thamrin C02",id:"501941_JKP_SATPOLPP_JL.-MH.-THAMRIN-C02_CCTV-01"},
+  {n:"Thamrin C07",id:"502491_JKP_SATPOL-PP_SIMPANG-JL.-MH.-THAMRIN-C07_CCTV-01"},
+  {n:"Thamrin C08",id:"502492_JKP_SATPOL-PP_SIMPANG-JL.-MH.-THAMRIN-C08_CCTV-01"},
+  {n:"Thamrin C09",id:"502493_JKP_SATPOL-PP_SIMPANG-JL.-MH.-THAMRIN-C09_CCTV-01"},
+  {n:"Flyover Ladokgi C01",id:"503536_JKP_DBM_FLYOVER-LADOKGI-C01_CCTV-01"},
+  {n:"UOB Plaza C01",id:"504866_JKP_POLRI_UOB-PLAZA-C01_CCTV-01"},
+];
+let cctvHls=null;
+function cctvStop(){
+  if(cctvHls){try{cctvHls.destroy()}catch(e){}cctvHls=null}
+  const v=$("cctvVideo");try{v.pause();v.removeAttribute("src");v.load()}catch(e){}
+}
+function cctvClose(){
+  cctvStop();
+  $("cctvModal").hidden=true;
+  $("cctvIframe").src="about:blank";
+}
+function cctvPlayHls(cam){
+  cctvStop();
+  $("cctvIframe").hidden=true;
+  $("cctvVideo").hidden=false;
+  $("tabIframe").classList.remove("on");
+  $("tabHls").classList.add("on");
+  const url=`${CCTV_HOST}/${cam.id}/index.m3u8`;
+  const v=$("cctvVideo");
+  if(v.canPlayType("application/vnd.apple.mpegurl")){ // Safari/iOS native
+    v.src=url;v.play().catch(()=>{});
+  }else if(window.Hls&&Hls.isSupported()){
+    cctvHls=new Hls({liveDurationInfinity:true,maxBufferLength:8});
+    cctvHls.loadSource(url);
+    cctvHls.attachMedia(v);
+  }else{
+    $("cctvTitle").textContent=cam.n+" — browser tak dukung HLS";
+  }
+}
+function cctvShow(cam){
+  $("cctvTitle").textContent=cam.n;
+  $("cctvModal").hidden=false;
+  $("tabIframe").classList.add("on");
+  $("tabHls").classList.remove("on");
+  $("cctvIframe").hidden=false;
+  $("cctvVideo").hidden=true;
+  $("cctvIframe").src=`${CCTV_HOST}/${cam.id}/embed.html`;
+}
+function initCctv(){
+  $("cctvRow").innerHTML=CAMS.map((c,i)=>
+    `<button class="cam" data-i="${i}">📹 ${c.n}</button>`).join("");
+  $("cctvRow").addEventListener("click",e=>{
+    const b=e.target.closest(".cam");
+    if(b)cctvShow(CAMS[+b.dataset.i]);
+  });
+  $("cctvClose").onclick=cctvClose;
+  $("cctvModal").addEventListener("click",e=>{if(e.target===$("cctvModal"))cctvClose()});
+  $("tabIframe").onclick=()=>{
+    const cam=CAMS.find(c=>c.n===$("cctvTitle").textContent);if(!cam)return;
+    $("tabIframe").classList.add("on");$("tabHls").classList.remove("on");
+    cctvStop();$("cctvVideo").hidden=true;$("cctvIframe").hidden=false;
+    $("cctvIframe").src=`${CCTV_HOST}/${cam.id}/embed.html`;
+  };
+  $("tabHls").onclick=()=>{
+    const cam=CAMS.find(c=>c.n===$("cctvTitle").textContent);if(!cam)return;
+    cctvPlayHls(cam);
+  };
 }
 
 /* ================= Heuristik & estimasi ================= */
@@ -525,6 +650,7 @@ async function cek(){
   bindAutocomplete("fromInput","fromSuggest","from","fromClr");
   bindAutocomplete("toInput","toSuggest","to","toClr");
   initMap();
+  initCctv();
   if(saved.theme==="dark"){document.documentElement.setAttribute("data-theme","dark");$("themeBtn").textContent="☀️"}
   setDir("pulang");
 })();
